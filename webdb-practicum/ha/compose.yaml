@@ -1,0 +1,52 @@
+name: webdb-ha
+services:
+  db_primary:
+    image: postgres:18
+    restart: "no"
+    environment:
+      POSTGRES_DB: webdb
+      POSTGRES_USER: lab_admin
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?run tools/init-env.sh}
+      REPLICATION_PASSWORD: ${REPLICATION_PASSWORD:?run tools/init-env.sh}
+      LAB_SUBNET: ${LAB_SUBNET:-172.30.80.0/24}
+    command: ["postgres", "-c", "wal_level=replica", "-c", "max_wal_senders=5", "-c", "wal_keep_size=128MB"]
+    ports:
+      - "127.0.0.1:${PRIMARY_PORT:-55433}:5432"
+    volumes:
+      - primary_data:/var/lib/postgresql
+      - ./init-primary.sh:/docker-entrypoint-initdb.d/10-replication.sh:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -h 127.0.0.1 -U lab_admin -d webdb"]
+      interval: 3s
+      timeout: 3s
+      retries: 30
+  db_standby:
+    image: postgres:18
+    restart: "no"
+    environment:
+      PGDATA: /var/lib/postgresql/18/docker
+      POSTGRES_USER: lab_admin
+      POSTGRES_DB: webdb
+      REPLICATION_PASSWORD: ${REPLICATION_PASSWORD:?run tools/init-env.sh}
+    command: ["bash", "/tools/start-standby.sh"]
+    ports:
+      - "127.0.0.1:${STANDBY_PORT:-55434}:5432"
+    volumes:
+      - standby_data:/var/lib/postgresql
+      - ./start-standby.sh:/tools/start-standby.sh:ro
+    depends_on:
+      db_primary:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -h 127.0.0.1 -U lab_admin -d webdb"]
+      interval: 3s
+      timeout: 3s
+      retries: 30
+volumes:
+  primary_data:
+  standby_data:
+networks:
+  default:
+    ipam:
+      config:
+        - subnet: ${LAB_SUBNET:-172.30.80.0/24}

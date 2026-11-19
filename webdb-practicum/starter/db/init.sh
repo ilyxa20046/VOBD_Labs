@@ -1,0 +1,18 @@
+#!/usr/bin/env bash
+set -euo pipefail
+psql -X -v ON_ERROR_STOP=1 --username "$POSTGRES_USER" --dbname "$POSTGRES_DB" \
+  -v owner_password="$OWNER_DB_PASSWORD" -v app_password="$APP_DB_PASSWORD" <<'SQL'
+CREATE ROLE lab_owner LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE PASSWORD :'owner_password';
+CREATE ROLE web_app LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE PASSWORD :'app_password';
+REVOKE CREATE ON SCHEMA public FROM PUBLIC;
+REVOKE ALL ON DATABASE webdb FROM PUBLIC;
+GRANT CONNECT ON DATABASE webdb TO lab_owner, web_app;
+CREATE SCHEMA app AUTHORIZATION lab_owner;
+GRANT USAGE ON SCHEMA app TO web_app;
+ALTER DEFAULT PRIVILEGES FOR ROLE lab_owner IN SCHEMA app
+  GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO web_app;
+ALTER DEFAULT PRIVILEGES FOR ROLE lab_owner IN SCHEMA app
+  GRANT USAGE, SELECT ON SEQUENCES TO web_app;
+ALTER ROLE lab_owner IN DATABASE webdb SET search_path = app, public;
+ALTER ROLE web_app IN DATABASE webdb SET search_path = app, public;
+SQL

@@ -1,0 +1,55 @@
+name: webdb-student
+services:
+  db:
+    image: postgres:18
+    environment:
+      POSTGRES_DB: webdb
+      POSTGRES_USER: lab_admin
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?run tools/init-env.sh}
+      OWNER_DB_PASSWORD: ${OWNER_DB_PASSWORD:?run tools/init-env.sh}
+      APP_DB_PASSWORD: ${APP_DB_PASSWORD:?run tools/init-env.sh}
+    ports:
+      - "127.0.0.1:${DB_PORT:-55432}:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql
+      - ./db/init.sh:/docker-entrypoint-initdb.d/10-roles.sh:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -h 127.0.0.1 -U lab_admin -d webdb"]
+      interval: 3s
+      timeout: 3s
+      retries: 20
+  web:
+    build: .
+    environment:
+      DB_HOST: db
+      DB_NAME: webdb
+      DB_USER: web_app
+      DB_PASSWORD: ${APP_DB_PASSWORD:?run tools/init-env.sh}
+      LAB_USER_TOKEN: ${LAB_USER_TOKEN:?run tools/init-env.sh}
+      LAB_OTHER_TOKEN: ${LAB_OTHER_TOKEN:?run tools/init-env.sh}
+      LAB_MANAGER_TOKEN: ${LAB_MANAGER_TOKEN:?run tools/init-env.sh}
+    ports:
+      - "127.0.0.1:${WEB_PORT:-8080}:80"
+    volumes:
+      - ./public:/var/www/html:ro
+      - ./src:/var/www/src:ro
+    depends_on:
+      db:
+        condition: service_healthy
+  migrate:
+    image: postgres:18
+    profiles: [tools]
+    environment:
+      PGHOST: db
+      PGDATABASE: webdb
+      PGUSER: lab_owner
+      PGPASSWORD: ${OWNER_DB_PASSWORD:?run tools/init-env.sh}
+    volumes:
+      - ./db/migrations:/migrations:ro
+      - ./tools/migrate.sh:/tools/migrate.sh:ro
+    entrypoint: ["bash", "/tools/migrate.sh"]
+    depends_on:
+      db:
+        condition: service_healthy
+volumes:
+  pgdata:
